@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RAG Simulator — Retrieval-Augmented Generation, Step by Step</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-0:        #06080f;
+    --bg-1:        #0b0f1c;
+    --panel:       rgba(20, 26, 44, 0.72);
+    --panel-2:     rgba(28, 35, 58, 0.6);
+    --edge:        rgba(120, 160, 255, 0.16);
+    --edge-hot:    rgba(120, 160, 255, 0.42);
+    --ink:         #e9edf7;
+    --ink-soft:    #9aa6c4;
+    --ink-faint:   #606d8f;
+    --cyan:        #38e8ff;
+    --violet:      #8b7dff;
+    --lime:        #7dffb0;
+    --amber:       #ffce5c;
+    --pink:        #ff7db0;
+    --grid:        rgba(120, 160, 255, 0.05);
+    --r:           16px;
+    --mono:        'JetBrains Mono', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg-0);
+    color: var(--ink);
+    font-family: 'Sora', sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ---- BACKGROUND ---- */
+  .bg {
+    position: fixed; inset: 0; z-index: -2;
+    background:
+      radial-gradient(700px 460px at 8% 4%, rgba(56,232,255,0.10), transparent 60%),
+      radial-gradient(680px 540px at 92% 96%, rgba(139,125,255,0.12), transparent 60%),
+      linear-gradient(180deg, var(--bg-0), var(--bg-1));
+  }
+  .bg-grid {
+    position: fixed; inset: 0; z-index: -1;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 52px 52px;
+    mask-image: radial-gradient(ellipse 95% 75% at 50% 30%, #000 35%, transparent 100%);
+  }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 44px 24px 90px; }
+
+  /* ---- HEADER ---- */
+  header { text-align: center; margin-bottom: 14px; }
+  .kicker {
+    display: inline-block;
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--cyan);
+    border: 1px solid var(--edge);
+    padding: 6px 14px; border-radius: 100px;
+    background: rgba(56,232,255,0.05);
+  }
+  h1 {
+    margin-top: 18px;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-weight: 800; letter-spacing: -0.02em; line-height: 1.05;
+    background: linear-gradient(120deg, #fff 15%, var(--cyan) 55%, var(--violet) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub {
+    margin: 12px auto 0; max-width: 620px;
+    color: var(--ink-soft); font-size: 0.97rem;
+  }
+
+  /* ---- PHASE TABS ---- */
+  .phase-bar {
+    display: flex; justify-content: center; gap: 10px;
+    margin: 30px 0 8px; flex-wrap: wrap;
+  }
+  .phase-tab {
+    font-family: var(--mono); font-size: 12px;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    border: 1px solid var(--edge);
+    background: var(--panel-2);
+    padding: 9px 16px; border-radius: 100px;
+    cursor: pointer; transition: all 0.2s ease;
+  }
+  .phase-tab:hover { border-color: var(--edge-hot); color: var(--ink); }
+  .phase-tab.active {
+    color: var(--bg-0); font-weight: 600;
+    background: linear-gradient(120deg, var(--cyan), var(--violet));
+    border-color: transparent;
+  }
+
+  /* ---- PROGRESS RAIL ---- */
+  .rail {
+    display: flex; align-items: center; justify-content: center;
+    gap: 0; margin: 26px auto 30px; flex-wrap: wrap;
+  }
+  .rail-node {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 8px; min-width: 88px; cursor: pointer;
+  }
+  .rail-dot {
+    width: 38px; height: 38px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-family: var(--mono); font-size: 13px; font-weight: 600;
+    border: 1px solid var(--edge);
+    background: var(--panel-2); color: var(--ink-faint);
+    transition: all 0.35s ease;
+  }
+  .rail-node.done .rail-dot {
+    border-color: var(--lime); color: var(--lime);
+    box-shadow: 0 0 16px rgba(125,255,176,0.25);
+  }
+  .rail-node.active .rail-dot {
+    border-color: var(--cyan); color: var(--bg-0);
+    background: var(--cyan);
+    box-shadow: 0 0 22px rgba(56,232,255,0.5);
+    transform: scale(1.12);
+  }
+  .rail-label {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.04em; color: var(--ink-faint);
+    text-align: center; transition: color 0.3s ease;
+  }
+  .rail-node.active .rail-label { color: var(--cyan); }
+  .rail-node.done .rail-label { color: var(--ink-soft); }
+  .rail-link {
+    width: 34px; height: 2px;
+    background: var(--edge);
+    margin-bottom: 26px;
+    transition: background 0.35s ease;
+  }
+  .rail-link.lit { background: linear-gradient(90deg, var(--lime), var(--cyan)); }
+
+  /* ---- STAGE PANEL ---- */
+  .stage {
+    border: 1px solid var(--edge);
+    border-radius: var(--r);
+    background: var(--panel);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    padding: 30px 32px;
+    position: relative; overflow: hidden;
+    min-height: 360px;
+  }
+  .stage::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--cyan), var(--violet), transparent);
+  }
+  .stage-head {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 6px; flex-wrap: wrap;
+  }
+  .stage-badge {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--amber); letter-spacing: 0.1em;
+    border: 1px solid rgba(255,206,92,0.3);
+    background: rgba(255,206,92,0.07);
+    padding: 4px 10px; border-radius: 7px;
+  }
+  .stage-title { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.01em; }
+  .stage-desc { color: var(--ink-soft); font-size: 0.94rem; margin: 8px 0 22px; max-width: 720px; }
+
+  .view { display: none; animation: fade 0.45s ease; }
+  .view.show { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+  /* ---- GENERIC BLOCKS ---- */
+  .block-label {
+    font-family: var(--mono); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--ink-faint); margin-bottom: 10px;
+  }
+  textarea, input[type=text] {
+    width: 100%;
+    background: var(--bg-0);
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    color: var(--ink);
+    font-family: 'Sora', sans-serif; font-size: 0.92rem;
+    padding: 12px 14px; resize: vertical;
+    transition: border-color 0.2s ease;
+  }
+  textarea:focus, input[type=text]:focus {
+    outline: none; border-color: var(--cyan);
+    box-shadow: 0 0 14px rgba(56,232,255,0.13);
+  }
+  textarea { min-height: 130px; line-height: 1.7; }
+
+  .controls {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    align-items: center; margin-top: 18px;
+  }
+  .btn {
+    font-family: var(--mono); font-size: 12px;
+    letter-spacing: 0.05em;
+    padding: 11px 20px; border-radius: 10px;
+    border: 1px solid transparent; cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .btn-primary {
+    background: linear-gradient(120deg, var(--cyan), var(--violet));
+    color: var(--bg-0); font-weight: 600;
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(56,232,255,0.22); }
+  .btn-ghost {
+    background: var(--panel-2); color: var(--ink-soft);
+    border-color: var(--edge);
+  }
+  .btn-ghost:hover { color: var(--ink); border-color: var(--edge-hot); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+  .slider-wrap { display: flex; align-items: center; gap: 12px; }
+  .slider-wrap label { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 150px; height: 4px; border-radius: 100px;
+    background: var(--edge); cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--cyan); box-shadow: 0 0 10px var(--cyan);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%; border: none;
+    background: var(--cyan); box-shadow: 0 0 10px var(--cyan);
+  }
+  .pill-val {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--cyan); min-width: 26px; text-align: center;
+  }
+
+  /* ---- CHUNKS ---- */
+  .chunk-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px; margin-top: 20px;
+  }
+  .chunk {
+    border: 1px solid var(--edge);
+    border-radius: 12px; padding: 13px 15px;
+    background: var(--panel-2);
+    font-size: 0.86rem; color: var(--ink-soft);
+    position: relative;
+    animation: pop 0.4s ease backwards;
+  }
+  @keyframes pop { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+  .chunk-id {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--cyan); letter-spacing: 0.08em;
+    display: block; margin-bottom: 6px;
+  }
+  .chunk.is-match {
+    border-color: var(--lime);
+    box-shadow: 0 0 18px rgba(125,255,176,0.18);
+  }
+  .chunk-score {
+    position: absolute; top: 10px; right: 12px;
+    font-family: var(--mono); font-size: 10px;
+    color: var(--ink-faint);
+  }
+  .chunk.is-match .chunk-score { color: var(--lime); }
+
+  /* ---- EMBEDDING VECTORS ---- */
+  .embed-row {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .embed-tag {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--cyan); min-width: 70px;
+  }
+  .vec {
+    display: flex; gap: 3px;
+  }
+  .vec-cell {
+    width: 13px; height: 22px; border-radius: 3px;
+    background: var(--violet);
+    animation: rise 0.5s ease backwards;
+  }
+  @keyframes rise { from { transform: scaleY(0.1); } to { transform: scaleY(1); } }
+  .vec-nums {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--ink-faint);
+  }
+
+  /* ---- VECTOR STORE ---- */
+  .store {
+    margin-top: 18px;
+    border: 1px dashed var(--edge);
+    border-radius: 12px; padding: 18px;
+    background: rgba(56,232,255,0.025);
+  }
+  .store-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+  }
+  .store-cell {
+    border: 1px solid var(--edge);
+    border-radius: 8px; padding: 10px;
+    text-align: center; background: var(--panel-2);
+    animation: pop 0.4s ease backwards;
+  }
+  .store-cell .sc-id {
+    font-family: var(--mono); font-size: 10px; color: var(--cyan);
+  }
+  .store-cell .sc-vec {
+    font-family: var(--mono); font-size: 9px; color: var(--ink-faint);
+    margin-top: 4px; word-break: break-all;
+  }
+
+  /* ---- SIMILARITY BARS ---- */
+  .sim-row {
+    display: grid; grid-template-columns: 90px 1fr 52px;
+    align-items: center; gap: 12px; margin-bottom: 10px;
+  }
+  .sim-id { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); }
+  .sim-track {
+    height: 22px; border-radius: 7px;
+    background: var(--bg-0); overflow: hidden;
+    border: 1px solid var(--edge);
+  }
+  .sim-fill {
+    height: 100%; width: 0;
+    background: linear-gradient(90deg, var(--violet), var(--cyan));
+    transition: width 1s cubic-bezier(0.16,1,0.3,1);
+  }
+  .sim-row.top .sim-fill {
+    background: linear-gradient(90deg, var(--lime), var(--cyan));
+  }
+  .sim-pct {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--ink-soft); text-align: right;
+  }
+  .sim-row.top .sim-pct { color: var(--lime); font-weight: 600; }
+
+  /* ---- PROMPT BUILDER ---- */
+  .prompt-box {
+    margin-top: 18px;
+    border: 1px solid var(--edge);
+    border-radius: 12px; overflow: hidden;
+    background: var(--bg-0);
+    font-family: var(--mono); font-size: 0.82rem;
+  }
+  .prompt-line { padding: 8px 16px; border-bottom: 1px solid var(--edge); }
+  .prompt-line:last-child { border-bottom: none; }
+  .pl-sys   { color: var(--amber); }
+  .pl-ctx   { color: var(--lime); background: rgba(125,255,176,0.04); }
+  .pl-q     { color: var(--cyan); }
+  .pl-head  { color: var(--ink-faint); }
+
+  /* ---- ANSWER ---- */
+  .answer {
+    margin-top: 18px;
+    border: 1px solid var(--edge);
+    border-left: 3px solid var(--cyan);
+    border-radius: 10px; padding: 18px 20px;
+    background: var(--panel-2);
+  }
+  .answer-text { font-size: 0.95rem; color: var(--ink); min-height: 24px; }
+  .typed-cursor {
+    display: inline-block; width: 8px; height: 1em;
+    background: var(--cyan); vertical-align: -2px;
+    animation: bk 1s steps(1) infinite;
+  }
+  @keyframes bk { 50% { opacity: 0; } }
+  .cites {
+    margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .cite-chip {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--lime);
+    border: 1px solid rgba(125,255,176,0.3);
+    background: rgba(125,255,176,0.06);
+    padding: 4px 9px; border-radius: 6px;
+  }
+
+  /* ---- INFO CALLOUT ---- */
+  .note {
+    margin-top: 18px;
+    border: 1px solid var(--edge);
+    border-radius: 10px; padding: 13px 16px;
+    background: rgba(139,125,255,0.05);
+    font-size: 0.86rem; color: var(--ink-soft);
+  }
+  .note b { color: var(--violet); }
+
+  /* ---- EMPTY STATE ---- */
+  .empty {
+    color: var(--ink-faint); font-family: var(--mono);
+    font-size: 0.82rem; padding: 28px 0; text-align: center;
+  }
+
+  /* ---- FOOT NAV ---- */
+  .footnav {
+    display: flex; justify-content: space-between;
+    margin-top: 20px; gap: 12px;
+  }
+  .legend {
+    margin-top: 34px; text-align: center;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+  }
+
+  @media (max-width: 620px) {
+    .wrap { padding: 30px 14px 70px; }
+    .stage { padding: 22px 18px; }
+    .rail-node { min-width: 64px; }
+    .rail-link { width: 16px; }
+    .sim-row { grid-template-columns: 72px 1fr 44px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bg"></div>
+<div class="bg-grid"></div>
+
+<div class="wrap">
+
+  <header>
+    <span class="kicker">Interactive Learning Tool</span>
+    <h1>RAG Simulator</h1>
+    <p class="sub">
+      Retrieval-Augmented Generation, walked through one step at a time —
+      from indexing a knowledge base to generating a grounded answer.
+    </p>
+  </header>
+
+  <!-- PHASE TABS -->
+  <div class="phase-bar">
+    <div class="phase-tab active" data-phase="index">Phase 1 — Indexing</div>
+    <div class="phase-tab" data-phase="query">Phase 2 — Querying</div>
+  </div>
+
+  <!-- PROGRESS RAIL -->
+  <div class="rail" id="rail"></div>
+
+  <!-- STAGE PANEL -->
+  <div class="stage">
+    <div class="stage-head">
+      <span class="stage-badge" id="stageBadge">STEP 1 / 7</span>
+      <span class="stage-title" id="stageTitle">Knowledge Base</span>
+    </div>
+    <p class="stage-desc" id="stageDesc"></p>
+
+    <!-- ===== VIEW 1: KNOWLEDGE BASE ===== -->
+    <div class="view show" data-view="0">
+      <div class="block-label">Source documents — edit this knowledge base</div>
+      <textarea id="kbInput">RAG stands for Retrieval-Augmented Generation. It combines a retrieval system with a language model.
+The indexing phase happens once: the knowledge base is split into chunks, each chunk is converted into a vector embedding, and the embeddings are stored in a vector database.
+The querying phase happens every time a user asks something. The question is embedded, a similarity search finds the most relevant chunks, and those chunks are added to the prompt.
+Chunking strategy matters a lot. Chunk size, overlap, and whether splits are semantic or fixed-length all affect retrieval quality.
+Retrieval is not always purely vector-based. Hybrid search combines keyword search with semantic search for better recall.
+Many production systems add a re-ranking step that reorders retrieved chunks before they are passed to the language model.
+The language model generates an answer grounded in the retrieved context instead of relying only on its training data.</textarea>
+      <div class="note">
+        <b>Why it matters:</b> The knowledge base is the ground truth RAG retrieves from.
+        The model can only answer accurately if the right facts live here. Each line above
+        becomes a candidate for chunking in the next step.
+      </div>
+    </div>
+
+    <!-- ===== VIEW 2: CHUNKING ===== -->
+    <div class="view" data-view="1">
+      <div class="controls" style="margin-top:0;">
+        <div class="slider-wrap">
+          <label>Chunk size (words)</label>
+          <input type="range" id="chunkSize" min="8" max="40" value="18" />
+          <span class="pill-val" id="chunkSizeVal">18</span>
+        </div>
+        <div class="slider-wrap">
+          <label>Overlap</label>
+          <input type="range" id="chunkOverlap" min="0" max="10" value="3" />
+          <span class="pill-val" id="chunkOverlapVal">3</span>
+        </div>
+        <button class="btn btn-primary" id="doChunk">Split into chunks</button>
+      </div>
+      <div class="chunk-grid" id="chunkGrid">
+        <div class="empty">// adjust the sliders, then run "Split into chunks"</div>
+      </div>
+      <div class="note">
+        <b>Why it matters:</b> Too-large chunks dilute relevance; too-small chunks lose context.
+        Overlap keeps a sentence from being cut in half across two chunks. Watch the chunk
+        count change as you move the sliders.
+      </div>
+    </div>
+
+    <!-- ===== VIEW 3: EMBEDDINGS ===== -->
+    <div class="view" data-view="2">
+      <div class="controls" style="margin-top:0;">
+        <button class="btn btn-primary" id="doEmbed">Generate embeddings</button>
+      </div>
+      <div id="embedList" style="margin-top:20px;">
+        <div class="empty">// run "Generate embeddings" to vectorise each chunk</div>
+      </div>
+      <div class="note">
+        <b>Why it matters:</b> An embedding is a list of numbers that captures the
+        <i>meaning</i> of text. Chunks about similar ideas land near each other in this
+        vector space — that is what makes semantic search possible. (Real embeddings have
+        hundreds or thousands of dimensions; this simulator uses 8 for visibility.)
+      </div>
+    </div>
+
+    <!-- ===== VIEW 4: VECTOR STORE ===== -->
+    <div class="view" data-view="3">
+      <div class="controls" style="margin-top:0;">
+        <button class="btn btn-primary" id="doStore">Store in vector database</button>
+      </div>
+      <div class="store" id="storeBox" style="display:none;">
+        <div class="block-label" style="margin-bottom:14px;">Vector database — indexed &amp; searchable</div>
+        <div class="store-grid" id="storeGrid"></div>
+      </div>
+      <div class="empty" id="storeEmpty">// run "Store in vector database" to finish indexing</div>
+      <div class="note">
+        <b>Why it matters:</b> The vector store holds every chunk + embedding pair and is
+        optimised for fast nearest-neighbour search. Indexing is now complete — this database
+        is reused for every future question without re-processing the documents.
+      </div>
+    </div>
+
+    <!-- ===== VIEW 5: QUERY EMBEDDING ===== -->
+    <div class="view" data-view="4">
+      <div class="block-label">User question</div>
+      <input type="text" id="queryInput" value="What happens during the indexing phase of RAG?" />
+      <div class="controls">
+        <button class="btn btn-primary" id="doQueryEmbed">Embed the question</button>
+      </div>
+      <div id="queryEmbedBox" style="margin-top:20px;"></div>
+      <div class="note">
+        <b>Why it matters:</b> The question is embedded with the <i>same</i> model used for
+        the chunks. Both must live in the same vector space — otherwise their numbers
+        cannot be meaningfully compared.
+      </div>
+    </div>
+
+    <!-- ===== VIEW 6: SIMILARITY SEARCH + RE-RANK ===== -->
+    <div class="view" data-view="5">
+      <div class="controls" style="margin-top:0;">
+        <div class="slider-wrap">
+          <label>Top-K to retrieve</label>
+          <input type="range" id="topK" min="1" max="5" value="3" />
+          <span class="pill-val" id="topKVal">3</span>
+        </div>
+        <button class="btn btn-primary" id="doSearch">Run similarity search</button>
+      </div>
+      <div id="simList" style="margin-top:20px;">
+        <div class="empty">// run the search to score every chunk against the question</div>
+      </div>
+      <div class="note">
+        <b>Why it matters:</b> Each chunk gets a similarity score against the question.
+        Only the <i>top-K</i> highest survive — that selectiveness is the whole point of RAG.
+        Production systems often add a <b>re-ranker</b> here to reorder the shortlist before
+        it reaches the model.
+      </div>
+    </div>
+
+    <!-- ===== VIEW 7: PROMPT + GENERATION ===== -->
+    <div class="view" data-view="6">
+      <div class="controls" style="margin-top:0;">
+        <button class="btn btn-primary" id="doGenerate">Assemble prompt &amp; generate</button>
+      </div>
+      <div id="promptBox"></div>
+      <div id="answerBox"></div>
+      <div class="note">
+        <b>Why it matters:</b> The retrieved chunks are injected into the prompt as context,
+        next to the original question. The model answers <i>grounded</i> in that context —
+        and the citations trace each claim back to a real chunk, instead of hallucinating.
+      </div>
+    </div>
+
+    <!-- FOOT NAV -->
+    <div class="footnav">
+      <button class="btn btn-ghost" id="prevBtn">‹ Previous</button>
+      <button class="btn btn-ghost" id="nextBtn">Next ›</button>
+    </div>
+  </div>
+
+  <div class="legend" id="legend">Step 1 of 7 — Indexing Phase</div>
+
+</div>
+
+<script>
+/* =====================================================================
+   RAG SIMULATOR  —  state + logic
+   ===================================================================== */
+const STEPS = [
+  { phase:'index', label:'Knowledge\nBase',   title:'Knowledge Base',
+    desc:'RAG starts with a body of source material. Everything the system can later retrieve must exist here. Edit the documents below to use your own.' },
+  { phase:'index', label:'Chunking',          title:'Chunking',
+    desc:'The knowledge base is split into smaller, retrievable pieces. Chunk size and overlap directly shape how well retrieval works later.' },
+  { phase:'index', label:'Embeddings',        title:'Vector Embeddings',
+    desc:'Each chunk is converted into a numeric vector that captures its meaning. Similar meaning produces nearby vectors.' },
+  { phase:'index', label:'Vector\nStore',     title:'Vector Database',
+    desc:'Chunks and their embeddings are saved into a vector store, indexed for fast similarity search. This completes the one-time indexing phase.' },
+  { phase:'query', label:'Query\nEmbedding',  title:'Query Embedding',
+    desc:'A user asks a question. It is embedded with the same model, so it lives in the same vector space as the stored chunks.' },
+  { phase:'query', label:'Similarity\nSearch',title:'Similarity Search & Re-ranking',
+    desc:'Every stored chunk is scored against the question. Only the top-K most relevant are kept — optionally re-ranked before use.' },
+  { phase:'query', label:'Generation',        title:'Augmented Generation',
+    desc:'The retrieved chunks are placed into the prompt alongside the question. The language model generates an answer grounded in that context.' }
+];
+
+const state = {
+  step: 0,
+  kbText: '',
+  chunks: [],          // [{id, text, embedding}]
+  stored: false,
+  query: '',
+  queryEmbedding: null,
+  retrieved: []        // [{id, text, score}]
+};
+
+/* ---- tiny deterministic "embedding" (8 dims, meaning-ish) ---- */
+const DIMS = 8;
+const KEYWORDS = [
+  ['index','indexing','store','database','stored'],
+  ['chunk','chunks','chunking','split','overlap'],
+  ['embed','embedding','embeddings','vector','vectors'],
+  ['query','question','user','ask','asks'],
+  ['similar','similarity','search','retrieve','retrieval','nearest'],
+  ['rank','re-rank','reorder','rerank','hybrid','keyword'],
+  ['generate','generation','answer','grounded','prompt','context'],
+  ['rag','model','language','llm','training']
+];
+function embed(text){
+  const words = text.toLowerCase().match(/[a-z\-]+/g) || [];
+  const v = new Array(DIMS).fill(0);
+  words.forEach(w=>{
+    KEYWORDS.forEach((group,i)=>{ if(group.includes(w)) v[i]+=1; });
+  });
+  /* add mild length signal so empty dims aren't all zero */
+  const norm = Math.sqrt(v.reduce((s,x)=>s+x*x,0)) || 1;
+  return v.map(x=> +(x/norm).toFixed(2));
+}
+function cosine(a,b){
+  let dot=0,na=0,nb=0;
+  for(let i=0;i<a.length;i++){ dot+=a[i]*b[i]; na+=a[i]*a[i]; nb+=b[i]*b[i]; }
+  if(na===0||nb===0) return 0;
+  return dot/(Math.sqrt(na)*Math.sqrt(nb));
+}
+
+/* =====================================================================
+   RAIL + NAVIGATION
+   ===================================================================== */
+const railEl = document.getElementById('rail');
+function buildRail(){
+  railEl.innerHTML='';
+  STEPS.forEach((s,i)=>{
+    if(i>0){
+      const link=document.createElement('div');
+      link.className='rail-link'+(i<=state.step?' lit':'');
+      railEl.appendChild(link);
+    }
+    const node=document.createElement('div');
+    node.className='rail-node'+(i===state.step?' active':'')+(i<state.step?' done':'');
+    node.innerHTML=
+      '<div class="rail-dot">'+(i<state.step?'✓':(i+1))+'</div>'+
+      '<div class="rail-label">'+s.label.replace('\n','<br>')+'</div>';
+    node.onclick=()=>goTo(i);
+    railEl.appendChild(node);
+  });
+}
+
+function render(){
+  const s=STEPS[state.step];
+  document.getElementById('stageBadge').textContent='STEP '+(state.step+1)+' / 7';
+  document.getElementById('stageTitle').textContent=s.title;
+  document.getElementById('stageDesc').textContent=s.desc;
+  document.querySelectorAll('.view').forEach(v=>{
+    v.classList.toggle('show', +v.dataset.view===state.step);
+  });
+  document.querySelectorAll('.phase-tab').forEach(t=>{
+    t.classList.toggle('active', t.dataset.phase===s.phase);
+  });
+  document.getElementById('prevBtn').disabled = state.step===0;
+  document.getElementById('nextBtn').disabled = state.step===STEPS.length-1;
+  document.getElementById('legend').textContent =
+    'Step '+(state.step+1)+' of 7 — '+(s.phase==='index'?'Indexing':'Querying')+' Phase';
+  buildRail();
+}
+
+function goTo(i){
+  if(i<0||i>=STEPS.length) return;
+  state.step=i;
+  render();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+document.getElementById('prevBtn').onclick=()=>goTo(state.step-1);
+document.getElementById('nextBtn').onclick=()=>goTo(state.step+1);
+document.querySelectorAll('.phase-tab').forEach(t=>{
+  t.onclick=()=>goTo(t.dataset.phase==='index'?0:4);
+});
+
+/* =====================================================================
+   STEP 2 — CHUNKING
+   ===================================================================== */
+const chunkSize=document.getElementById('chunkSize');
+const chunkOverlap=document.getElementById('chunkOverlap');
+chunkSize.oninput=()=>document.getElementById('chunkSizeVal').textContent=chunkSize.value;
+chunkOverlap.oninput=()=>document.getElementById('chunkOverlapVal').textContent=chunkOverlap.value;
+
+document.getElementById('doChunk').onclick=()=>{
+  state.kbText=document.getElementById('kbInput').value.trim();
+  const words=state.kbText.split(/\s+/).filter(Boolean);
+  const size=+chunkSize.value;
+  let overlap=+chunkOverlap.value;
+  if(overlap>=size) overlap=size-1;
+  const step=Math.max(1,size-overlap);
+  state.chunks=[];
+  let idx=0;
+  for(let i=0;i<words.length;i+=step){
+    const slice=words.slice(i,i+size);
+    if(slice.length===0) break;
+    state.chunks.push({ id:'C'+String(++idx).padStart(2,'0'), text:slice.join(' '), embedding:null });
+    if(i+size>=words.length) break;
+  }
+  state.stored=false;
+  renderChunks();
+};
+function renderChunks(){
+  const g=document.getElementById('chunkGrid');
+  if(!state.chunks.length){ g.innerHTML='<div class="empty">// no chunks yet</div>'; return; }
+  g.innerHTML='';
+  state.chunks.forEach((c,i)=>{
+    const d=document.createElement('div');
+    d.className='chunk';
+    d.style.animationDelay=(i*0.05)+'s';
+    d.innerHTML='<span class="chunk-id">'+c.id+'</span>'+c.text;
+    g.appendChild(d);
+  });
+}
+
+/* =====================================================================
+   STEP 3 — EMBEDDINGS
+   ===================================================================== */
+document.getElementById('doEmbed').onclick=()=>{
+  if(!state.chunks.length){ alert('Run the chunking step first (Step 2).'); return; }
+  state.chunks.forEach(c=> c.embedding=embed(c.text));
+  renderEmbeds();
+};
+function vecHTML(vec){
+  let bars='<div class="vec">';
+  vec.forEach((x,i)=>{
+    const h=Math.max(0.12, Math.abs(x));
+    bars+='<div class="vec-cell" style="transform:scaleY('+h+');animation-delay:'+(i*0.04)+'s"></div>';
+  });
+  bars+='</div>';
+  return bars+'<span class="vec-nums">['+vec.join(', ')+']</span>';
+}
+function renderEmbeds(){
+  const box=document.getElementById('embedList');
+  box.innerHTML='';
+  state.chunks.forEach((c,i)=>{
+    const row=document.createElement('div');
+    row.className='embed-row';
+    row.style.animationDelay=(i*0.05)+'s';
+    row.innerHTML='<span class="embed-tag">'+c.id+'</span>'+vecHTML(c.embedding);
+    box.appendChild(row);
+  });
+}
+
+/* =====================================================================
+   STEP 4 — VECTOR STORE
+   ===================================================================== */
+document.getElementById('doStore').onclick=()=>{
+  if(!state.chunks.length || !state.chunks[0].embedding){
+    alert('Generate embeddings first (Step 3).'); return;
+  }
+  state.stored=true;
+  document.getElementById('storeEmpty').style.display='none';
+  const box=document.getElementById('storeBox');
+  box.style.display='block';
+  const g=document.getElementById('storeGrid');
+  g.innerHTML='';
+  state.chunks.forEach((c,i)=>{
+    const cell=document.createElement('div');
+    cell.className='store-cell';
+    cell.style.animationDelay=(i*0.06)+'s';
+    cell.innerHTML='<div class="sc-id">'+c.id+'</div>'+
+      '<div class="sc-vec">'+c.embedding.slice(0,4).join(' / ')+' …</div>';
+    g.appendChild(cell);
+  });
+};
+
+/* =====================================================================
+   STEP 5 — QUERY EMBEDDING
+   ===================================================================== */
+document.getElementById('doQueryEmbed').onclick=()=>{
+  state.query=document.getElementById('queryInput').value.trim();
+  if(!state.query){ alert('Type a question first.'); return; }
+  if(!state.stored){ alert('Finish indexing first — run Steps 2 to 4.'); return; }
+  state.queryEmbedding=embed(state.query);
+  const box=document.getElementById('queryEmbedBox');
+  box.innerHTML=
+    '<div class="block-label">Question vector (same 8-dim space as the chunks)</div>'+
+    '<div class="embed-row"><span class="embed-tag">QUERY</span>'+vecHTML(state.queryEmbedding)+'</div>';
+};
+
+/* =====================================================================
+   STEP 6 — SIMILARITY SEARCH
+   ===================================================================== */
+const topK=document.getElementById('topK');
+topK.oninput=()=>document.getElementById('topKVal').textContent=topK.value;
+
+document.getElementById('doSearch').onclick=()=>{
+  if(!state.queryEmbedding){ alert('Embed the question first (Step 5).'); return; }
+  const scored=state.chunks.map(c=>({
+    id:c.id, text:c.text,
+    score:cosine(state.queryEmbedding,c.embedding)
+  })).sort((a,b)=>b.score-a.score);
+  const k=+topK.value;
+  state.retrieved=scored.slice(0,k);
+  const topIds=new Set(state.retrieved.map(r=>r.id));
+
+  const box=document.getElementById('simList');
+  box.innerHTML='';
+  scored.forEach((c,i)=>{
+    const isTop=topIds.has(c.id);
+    const row=document.createElement('div');
+    row.className='sim-row'+(isTop?' top':'');
+    const pct=Math.round(c.score*100);
+    row.innerHTML=
+      '<span class="sim-id">'+c.id+(isTop?' ★':'')+'</span>'+
+      '<div class="sim-track"><div class="sim-fill"></div></div>'+
+      '<span class="sim-pct">'+pct+'%</span>';
+    box.appendChild(row);
+    setTimeout(()=>{ row.querySelector('.sim-fill').style.width=Math.max(3,pct)+'%'; }, 60+i*70);
+  });
+  if(!scored.length) box.innerHTML='<div class="empty">// no chunks to search</div>';
+};
+
+/* =====================================================================
+   STEP 7 — PROMPT + GENERATION
+   ===================================================================== */
+document.getElementById('doGenerate').onclick=()=>{
+  if(!state.retrieved.length){ alert('Run the similarity search first (Step 6).'); return; }
+
+  /* build the prompt */
+  const pBox=document.getElementById('promptBox');
+  let ctx='';
+  state.retrieved.forEach(r=>{ ctx+='<div class="prompt-line pl-ctx">['+r.id+'] '+r.text+'</div>'; });
+  pBox.innerHTML=
+    '<div class="prompt-box">'+
+      '<div class="prompt-line pl-head">// FINAL PROMPT SENT TO THE LANGUAGE MODEL</div>'+
+      '<div class="prompt-line pl-sys">SYSTEM: Answer using only the context below. Cite chunk IDs.</div>'+
+      '<div class="prompt-line pl-head">CONTEXT (top-'+state.retrieved.length+' retrieved chunks):</div>'+
+      ctx+
+      '<div class="prompt-line pl-q">QUESTION: '+state.query+'</div>'+
+    '</div>';
+
+  /* synthesise a grounded answer from retrieved chunks */
+  const aBox=document.getElementById('answerBox');
+  const sentences=[];
+  state.retrieved.forEach(r=>{
+    /* take the first ~22 words of each retrieved chunk as a grounded fragment */
+    const frag=r.text.split(/\s+/).slice(0,22).join(' ');
+    sentences.push(frag.charAt(0).toUpperCase()+frag.slice(1));
+  });
+  const answer='Based on the retrieved context: '+sentences.join('. ')+
+    '. This answer is grounded in the chunks shown above rather than the model\'s memory.';
+
+  aBox.innerHTML=
+    '<div class="answer">'+
+      '<div class="block-label">Generated answer</div>'+
+      '<div class="answer-text" id="answerText"><span class="typed-cursor"></span></div>'+
+      '<div class="cites" id="citeRow"></div>'+
+    '</div>';
+
+  /* typewriter effect */
+  const target=document.getElementById('answerText');
+  let i=0;
+  (function type(){
+    if(i<=answer.length){
+      target.innerHTML=answer.slice(0,i)+'<span class="typed-cursor"></span>';
+      i+=2;
+      setTimeout(type,14);
+    }else{
+      target.textContent=answer;
+      const cr=document.getElementById('citeRow');
+      state.retrieved.forEach(r=>{
+        const c=document.createElement('span');
+        c.className='cite-chip';
+        c.textContent='source: '+r.id;
+        cr.appendChild(c);
+      });
+    }
+  })();
+};
+
+/* ---- init ---- */
+render();
+</script>
+
+</body>
+</html>
